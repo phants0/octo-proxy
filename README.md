@@ -1,4 +1,4 @@
-# Octo Proxy
+# Phants Proxy
 
 A browser-style privacy proxy designed around a simple principle:
 

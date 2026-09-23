@@ -234,17 +234,35 @@ app.get("/proxy", async (req, res) => {
   const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const upstream = await fetch(target, {
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
+    let currentTarget = target;
+    let upstream;
+
+    // Validate every redirect target so a public URL cannot bounce the
+    // proxy into localhost/private-network addresses.
+    for (let redirects = 0; redirects <= 10; redirects++) {
+      upstream = await fetch(currentTarget, {
+        redirect: "manual",
+        signal: controller.signal,
+        headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
         "Accept":
           "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9"
+        }
+      });
+
+      if (![301, 302, 303, 307, 308].includes(upstream.status)) break;
+
+      const location = upstream.headers.get("location");
+      if (!location) break;
+
+      currentTarget = await assertSafeTarget(new URL(location, currentTarget).href);
+
+      if (redirects === 10) {
+        return res.status(508).send("Too many redirects.");
       }
-    });
+    }
 
     copyResponseHeaders(upstream, res);
 
@@ -282,8 +300,10 @@ app.get("/proxy", async (req, res) => {
   }
 });
 
-app.get("*", (_req, res) => {
-  res.sendFile("index.html", { root: new URL("./public", import.meta.url).pathname });
+app.use((_req, res) => {
+  res.sendFile("index.html", {
+    root: new URL("./public", import.meta.url).pathname
+  });
 });
 
 app.listen(PORT, () => {
